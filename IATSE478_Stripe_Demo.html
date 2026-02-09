@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>IATSE 478 — Automated Dues Collection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Libre Franklin', 'Helvetica Neue', Arial, sans-serif; background: #f7f7f8; -webkit-font-smoothing: antialiased; }
+  button { font-family: inherit; }
+  input { font-family: inherit; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── Constants ──
+const QUARTERLY_DUES = 62.00;
+const P = "#635BFF"; // Stripe purple
+const D = "#0A2540"; // Dark
+const G = "#16a34a"; // Green
+const R = "#dc2626"; // Red
+const A = "#d97706"; // Amber
+const S = "#64748b"; // Slate
+
+// ── Mock Data ──
+const MEMBERS = [
+  { id:1, name:"Maria Rodriguez", email:"maria.r@email.com", status:"current", cardLast4:"4242", cardBrand:"Visa",
+    quartersPaid:["Q1 2025","Q2 2025","Q3 2025","Q4 2025","Q1 2026"], arrears:0, plan:null,
+    payments:[
+      {date:"2026-01-02",desc:"Q1 2026 Dues",amount:62,status:"succeeded"},
+      {date:"2025-10-01",desc:"Q4 2025 Dues",amount:62,status:"succeeded"},
+      {date:"2025-07-01",desc:"Q3 2025 Dues",amount:62,status:"succeeded"},
+    ]},
+  { id:2, name:"James Washington", email:"jwash@email.com", status:"plan_active", cardLast4:"1234", cardBrand:"Mastercard",
+    quartersPaid:["Q1 2025","Q2 2025"], arrears:186,
+    plan:{type:"monthly",catchUpAmount:31,totalArrears:186,paidDown:62,startDate:"2025-11-01",payments:6,paymentsCompleted:2},
+    payments:[
+      {date:"2026-02-01",desc:"Monthly: Dues $62 + Catch-up $31",amount:93,status:"succeeded"},
+      {date:"2026-01-01",desc:"Monthly: Dues $62 + Catch-up $31",amount:93,status:"succeeded"},
+      {date:"2025-12-01",desc:"Plan started — Catch-up $31",amount:31,status:"succeeded"},
+      {date:"2025-11-01",desc:"Plan started — Catch-up $31",amount:31,status:"succeeded"},
+    ]},
+  { id:3, name:"Danielle Tran", email:"dtran@email.com", status:"behind", cardLast4:"5678", cardBrand:"Visa",
+    quartersPaid:["Q1 2025","Q2 2025","Q3 2025"], arrears:124, plan:null,
+    payments:[
+      {date:"2026-01-02",desc:"Q1 2026 Dues",amount:62,status:"failed"},
+      {date:"2025-10-01",desc:"Q4 2025 Dues",amount:62,status:"failed"},
+      {date:"2025-07-01",desc:"Q3 2025 Dues",amount:62,status:"succeeded"},
+    ]},
+  { id:4, name:"Robert Chen", email:"rchen@email.com", status:"current", cardLast4:"9012", cardBrand:"Visa",
+    quartersPaid:["Q1 2025","Q2 2025","Q3 2025","Q4 2025","Q1 2026"], arrears:0, plan:null,
+    payments:[
+      {date:"2026-01-02",desc:"Q1 2026 Dues",amount:62,status:"succeeded"},
+      {date:"2025-10-01",desc:"Q4 2025 Dues",amount:62,status:"succeeded"},
+    ]},
+  { id:5, name:"Angela Foster", email:"afoster@email.com", status:"plan_active", cardLast4:"3456", cardBrand:"Mastercard",
+    quartersPaid:["Q1 2025"], arrears:310,
+    plan:{type:"weekly",catchUpAmount:15,totalArrears:310,paidDown:90,startDate:"2025-12-01",payments:24,paymentsCompleted:6},
+    payments:[
+      {date:"2026-02-04",desc:"Weekly: Catch-up $15",amount:15,status:"succeeded"},
+      {date:"2026-01-28",desc:"Weekly: Catch-up $15",amount:15,status:"succeeded"},
+      {date:"2026-01-21",desc:"Weekly: Catch-up $15",amount:15,status:"succeeded"},
+      {date:"2026-01-14",desc:"Weekly: Catch-up $15",amount:15,status:"succeeded"},
+      {date:"2026-01-07",desc:"Weekly: Catch-up $15",amount:15,status:"succeeded"},
+      {date:"2026-01-02",desc:"Q1 2026 Dues + Catch-up $15",amount:77,status:"succeeded"},
+    ]},
+  { id:6, name:"Michael Breaux", email:"mbreaux@email.com", status:"plan_active", cardLast4:"7890", cardBrand:"Discover",
+    quartersPaid:["Q1 2025","Q2 2025","Q3 2025"], arrears:124,
+    plan:{type:"monthly",catchUpAmount:20.67,totalArrears:124,paidDown:41.34,startDate:"2025-12-01",payments:6,paymentsCompleted:2},
+    payments:[
+      {date:"2026-02-01",desc:"Monthly: Catch-up $20.67",amount:20.67,status:"retrying"},
+      {date:"2026-01-02",desc:"Q1 2026 Dues + Catch-up $20.67",amount:82.67,status:"succeeded"},
+      {date:"2025-12-01",desc:"Catch-up $20.67",amount:20.67,status:"succeeded"},
+    ]},
+  { id:7, name:"Lisa Nguyen", email:"lnguyen@email.com", status:"current", cardLast4:"2345", cardBrand:"Visa",
+    quartersPaid:["Q1 2025","Q2 2025","Q3 2025","Q4 2025","Q1 2026"], arrears:0, plan:null,
+    payments:[
+      {date:"2026-01-02",desc:"Q1 2026 Dues",amount:62,status:"succeeded"},
+      {date:"2025-10-01",desc:"Q4 2025 Dues",amount:62,status:"succeeded"},
+    ]},
+  { id:8, name:"Derek Williams", email:"dwilliams@email.com", status:"behind", cardLast4:"6789", cardBrand:"Visa",
+    quartersPaid:["Q1 2025","Q2 2025"], arrears:248, plan:null,
+    payments:[
+      {date:"2025-07-01",desc:"Q3 2025 Dues",amount:62,status:"failed"},
+    ]},
+];
+
+// ── Helpers ──
+const fmt = n => "$" + n.toFixed(2);
+const sC = {
+  current:{bg:"#f0fdf4",c:G,b:"#bbf7d0",l:"Current"},
+  plan_active:{bg:"#eff6ff",c:"#2563eb",b:"#bfdbfe",l:"On Plan"},
+  behind:{bg:"#fef2f2",c:R,b:"#fecaca",l:"Behind"},
+};
+
+// ── SVG Icons (inline) ──
+const I = ({children,size=20,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}>{children}</svg>;
+const CheckCircle=p=><I {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></I>;
+const AlertTri=p=><I {...p}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></I>;
+const Refresh=p=><I {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></I>;
+const CC=p=><I {...p}><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></I>;
+const Usrs=p=><I {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></I>;
+const Dollar=p=><I {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></I>;
+const ArrowL=p=><I {...p}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></I>;
+const Shield=p=><I {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></I>;
+const Eye=p=><I {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></I>;
+const Cal=p=><I {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></I>;
+const TUp=p=><I {...p}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></I>;
+
+const Badge=({status})=>{const c=sC[status];return <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:c.bg,color:c.c,border:`1px solid ${c.b}`,display:"inline-flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>{c.l}</span>};
+const Bar=({pct,color=P,height=8})=><div style={{background:"#e2e8f0",borderRadius:height,height,width:"100%",overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:color,borderRadius:height,transition:"width 0.5s ease"}}/></div>;
+
+// ============================================================
+// MEMBER PAYMENT PAGE
+// ============================================================
+function MemberPage({onBack}) {
+  const [step,setStep]=useState("landing");
+  const [planType,setPlanType]=useState("monthly");
+  const [form,setForm]=useState({name:"",email:""});
+
+  const qOwed=3, totalArr=qOwed*QUARTERLY_DUES;
+  const wkAmt=Math.ceil((totalArr/24)*100)/100;
+  const moAmt=Math.ceil((totalArr/6)*100)/100;
+
+  // Landing
+  if(step==="landing") return (
+    <div style={{minHeight:"100vh",background:"#f7f7f8",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"white",borderRadius:16,boxShadow:"0 8px 40px rgba(0,0,0,0.08)",maxWidth:520,width:"100%",overflow:"hidden"}}>
+        <div style={{background:D,padding:"28px 28px 24px",color:"white",textAlign:"center"}}>
+          <div style={{fontSize:12,fontWeight:600,letterSpacing:2,textTransform:"uppercase",opacity:.6,marginBottom:6}}>IATSE Local 478</div>
+          <div style={{fontSize:22,fontWeight:700}}>Get Current on Your Dues</div>
+        </div>
+        <div style={{padding:"24px 24px 28px"}}>
+          {/* Account summary */}
+          <div style={{background:"#fef2f2",borderRadius:12,padding:18,marginBottom:22,border:"1px solid #fecaca"}}>
+            <div style={{fontSize:12,fontWeight:600,color:R,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Your Account Summary</div>
+            {[[`Current quarterly dues`,fmt(QUARTERLY_DUES)+"/quarter"],[`Quarters past due`,qOwed+" quarters"]].map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontSize:14}}>
+                <span style={{color:"#374151"}}>{l}</span>
+                <span style={{fontWeight:600,color:l.includes("past")?R:D}}>{v}</span>
+              </div>
+            ))}
+            <div style={{borderTop:"1px solid #fecaca",paddingTop:10,marginTop:8,display:"flex",justifyContent:"space-between",fontSize:16}}>
+              <span style={{fontWeight:600,color:D}}>Total owed</span>
+              <span style={{fontWeight:700,color:R,fontSize:20}}>{fmt(totalArr)}</span>
+            </div>
+          </div>
+
+          <div style={{fontSize:14,fontWeight:700,color:D,marginBottom:10}}>Choose a Catch-Up Plan</div>
+          <div style={{fontSize:13,color:S,marginBottom:14,lineHeight:1.6}}>Each plan keeps you current on new quarterly dues while paying down what you owe:</div>
+
+          {[{key:"weekly",label:"Weekly",amt:wkAmt,dur:"~24 weeks",freq:"week"},
+            {key:"monthly",label:"Monthly",amt:moAmt,dur:"6 months",freq:"month"}].map(o=>(
+            <div key={o.key} onClick={()=>setPlanType(o.key)} style={{border:`2px solid ${planType===o.key?P:"#e2e8f0"}`,borderRadius:12,padding:16,marginBottom:10,cursor:"pointer",background:planType===o.key?P+"08":"white",transition:"all 0.2s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:D}}>{o.label} Plan</div>
+                  <div style={{fontSize:12,color:S,marginTop:2}}>{o.dur} to catch up</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:22,fontWeight:700,color:P}}>{fmt(o.amt)}</div>
+                  <div style={{fontSize:11,color:S}}>per {o.freq} catch-up</div>
+                </div>
+              </div>
+              <div style={{fontSize:12,color:S,background:"#f8fafc",padding:"8px 10px",borderRadius:6,lineHeight:1.5}}>
+                <strong style={{color:"#374151"}}>How it works:</strong> Pay {fmt(o.amt)} every {o.freq} toward your {fmt(totalArr)} balance. On quarter dates, {fmt(QUARTERLY_DUES)} dues are also charged to keep you current.
+              </div>
+            </div>
+          ))}
+
+          <div style={{background:"#f0fdf4",borderRadius:8,padding:11,marginBottom:18,display:"flex",gap:8,alignItems:"flex-start",border:"1px solid #bbf7d0"}}>
+            <Shield size={15} style={{color:G,flexShrink:0,marginTop:2}}/>
+            <div style={{fontSize:12,color:"#15803d",lineHeight:1.5}}>Your card details are handled securely by Stripe. The Local office never sees your full card number.</div>
+          </div>
+
+          <button onClick={()=>setStep("form")} style={{width:"100%",padding:"14px",background:P,color:"white",border:"none",borderRadius:10,fontSize:15,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 12px rgba(99,91,255,0.3)"}}>
+            Set Up {planType==="weekly"?"Weekly":"Monthly"} Plan
+          </button>
+        </div>
+      </div>
+      <button onClick={onBack} style={{marginTop:18,background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer"}}>← Back to demo</button>
+    </div>
+  );
+
+  // Form
+  if(step==="form"){
+    const catchUp=planType==="weekly"?wkAmt:moAmt;
+    return(
+      <div style={{minHeight:"100vh",background:"#f7f7f8",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"white",borderRadius:16,boxShadow:"0 8px 40px rgba(0,0,0,0.08)",maxWidth:480,width:"100%",overflow:"hidden"}}>
+          <div style={{background:D,padding:"18px 24px",color:"white",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><div style={{fontSize:12,opacity:.5}}>IATSE Local 478</div><div style={{fontSize:18,fontWeight:700}}>Payment Details</div></div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:11,opacity:.5}}>{planType==="weekly"?"Weekly":"Monthly"} catch-up</div><div style={{fontSize:20,fontWeight:700}}>{fmt(catchUp)}</div></div>
+          </div>
+          <div style={{padding:"24px"}}>
+            <div style={{background:"#f8fafc",borderRadius:10,padding:12,marginBottom:18,fontSize:13,color:S,lineHeight:1.6,border:"1px solid #e2e8f0"}}>
+              <div style={{fontWeight:600,color:D,marginBottom:4}}>Your plan:</div>
+              • {fmt(catchUp)} every {planType==="weekly"?"week":"month"} toward {fmt(totalArr)} balance<br/>
+              • {fmt(QUARTERLY_DUES)} on quarter dates for current dues<br/>
+              • Paid off in ~{planType==="weekly"?"24 weeks":"6 months"}
+            </div>
+
+            {[["Full Name","text","As it appears on your card","name"],["Email","email","For payment receipts","email"]].map(([l,t,ph,k])=>(
+              <div key={k} style={{marginBottom:14}}>
+                <label style={{display:"block",fontSize:13,fontWeight:600,color:"#374151",marginBottom:5}}>{l}</label>
+                <input type={t} placeholder={ph} value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}
+                  style={{width:"100%",padding:"11px 14px",border:"1px solid #d1d5db",borderRadius:8,fontSize:14,outline:"none",boxSizing:"border-box"}}
+                  onFocus={e=>e.target.style.borderColor=P} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+              </div>
+            ))}
+
+            <div style={{marginBottom:18}}>
+              <label style={{display:"block",fontSize:13,fontWeight:600,color:"#374151",marginBottom:5}}>Card Information</label>
+              <div style={{border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden"}}>
+                <div style={{padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e5e7eb"}}>
+                  <span style={{color:"#9ca3af",fontSize:14}}>4242 4242 4242 4242</span>
+                  <div style={{background:"#1a1f71",borderRadius:3,width:30,height:18,display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontSize:7,fontWeight:700,fontStyle:"italic"}}>VISA</div>
+                </div>
+                <div style={{display:"flex"}}>
+                  <div style={{flex:1,padding:"11px 14px",borderRight:"1px solid #e5e7eb"}}><span style={{color:"#9ca3af",fontSize:14}}>MM / YY</span></div>
+                  <div style={{flex:1,padding:"11px 14px"}}><span style={{color:"#9ca3af",fontSize:14}}>CVC</span></div>
+                </div>
+              </div>
+              <div style={{fontSize:11,color:"#94a3b8",marginTop:5}}>🔒 Demo — in production this is Stripe's secure hosted element</div>
+            </div>
+
+            <button onClick={()=>{setStep("processing");setTimeout(()=>setStep("success"),2200)}}
+              style={{width:"100%",padding:"14px",background:P,color:"white",border:"none",borderRadius:10,fontSize:15,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 12px rgba(99,91,255,0.3)"}}>
+              Start Payment Plan
+            </button>
+            <button onClick={()=>setStep("landing")} style={{width:"100%",marginTop:10,background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer"}}>← Change plan</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Processing
+  if(step==="processing") return(
+    <div style={{minHeight:"100vh",background:"#f7f7f8",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{width:44,height:44,border:"3px solid #e2e8f0",borderTopColor:P,borderRadius:"50%",margin:"0 auto 20px",animation:"spin 0.8s linear infinite"}}/>
+        <div style={{fontSize:17,fontWeight:600,color:D}}>Setting up your plan...</div>
+        <div style={{fontSize:13,color:"#94a3b8",marginTop:6}}>Creating subscriptions in Stripe</div>
+      </div>
+    </div>
+  );
+
+  // Success
+  const catchUp=planType==="weekly"?wkAmt:moAmt;
+  return(
+    <div style={{minHeight:"100vh",background:"#f7f7f8",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"white",borderRadius:16,boxShadow:"0 8px 40px rgba(0,0,0,0.08)",maxWidth:480,width:"100%",padding:32,textAlign:"center"}}>
+        <div style={{width:56,height:56,borderRadius:"50%",background:"#f0fdf4",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",animation:"popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)"}}>
+          <CheckCircle size={28} style={{color:G}}/>
+        </div>
+        <div style={{fontSize:20,fontWeight:700,color:D,marginBottom:8}}>Your Plan is Active!</div>
+        <div style={{fontSize:14,color:S,lineHeight:1.6,marginBottom:22}}>You're on track to be fully caught up. We'll send a receipt after each payment.</div>
+
+        <div style={{background:"#f8fafc",borderRadius:10,padding:16,textAlign:"left",marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Plan Details</div>
+          {[["Catch-up",fmt(catchUp)+" / "+(planType==="weekly"?"week":"month")],["Quarterly dues",fmt(QUARTERLY_DUES)+" (next: Apr 1, 2026)"],["Total arrears",fmt(totalArr)],["Payoff",planType==="weekly"?"~24 weeks":"~6 months"],["Card","Visa ending in 4242"]].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}>
+              <span style={{color:S}}>{l}</span><span style={{color:D,fontWeight:500}}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.5}}>Need to adjust your plan? Contact the office or use the link in your confirmation email.</div>
+      </div>
+      <button onClick={onBack} style={{marginTop:18,background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer"}}>← Back to demo</button>
+    </div>
+  );
+}
+
+// ============================================================
+// ADMIN DASHBOARD
+// ============================================================
+function AdminDash({onBack}) {
+  const [sel,setSel]=useState(null);
+  const [filter,setFilter]=useState("all");
+  const [planModal,setPlanModal]=useState(null);
+  const [pFreq,setPFreq]=useState("monthly");
+  const [pMo,setPMo]=useState(6);
+
+  const ct={current:0,plan_active:0,behind:0};
+  MEMBERS.forEach(m=>ct[m.status]++);
+  const totCol=MEMBERS.flatMap(m=>m.payments).filter(p=>p.status==="succeeded").reduce((s,p)=>s+p.amount,0);
+  const totOut=MEMBERS.reduce((s,m)=>s+m.arrears,0);
+  const filt=filter==="all"?MEMBERS:MEMBERS.filter(m=>m.status===filter);
+
+  // ── Plan Builder ──
+  if(planModal){
+    const m=planModal;
+    const catchUp=pFreq==="weekly"?Math.ceil((m.arrears/(pMo*4.33))*100)/100:Math.ceil((m.arrears/pMo)*100)/100;
+    return(
+      <div style={{minHeight:"100vh",background:"#f1f5f9"}}>
+        <div style={{background:D,padding:"14px 20px",display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>setPlanModal(null)} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,padding:"8px 12px",color:"white",cursor:"pointer",fontSize:13}}>← Cancel</button>
+          <div style={{color:"white",fontWeight:600}}>Create Plan — {m.name}</div>
+        </div>
+        <div style={{maxWidth:600,margin:"0 auto",padding:20}}>
+          <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",marginBottom:18}}>
+            <div style={{fontSize:16,fontWeight:700,color:D,marginBottom:14}}>Account Status</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+              <div style={{background:"#fef2f2",borderRadius:8,padding:14,textAlign:"center"}}>
+                <div style={{fontSize:11,color:R,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Total Owed</div>
+                <div style={{fontSize:24,fontWeight:700,color:R}}>{fmt(m.arrears)}</div>
+              </div>
+              <div style={{background:"#f8fafc",borderRadius:8,padding:14,textAlign:"center"}}>
+                <div style={{fontSize:11,color:S,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Quarters Behind</div>
+                <div style={{fontSize:24,fontWeight:700,color:D}}>{Math.round(m.arrears/QUARTERLY_DUES)}</div>
+              </div>
+              <div style={{background:"#f8fafc",borderRadius:8,padding:14,textAlign:"center"}}>
+                <div style={{fontSize:11,color:S,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Paid Through</div>
+                <div style={{fontSize:16,fontWeight:700,color:D,marginTop:4}}>{m.quartersPaid[m.quartersPaid.length-1]}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:16,fontWeight:700,color:D,marginBottom:14}}>Design the Plan</div>
+
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#374151",marginBottom:8}}>Frequency</div>
+              <div style={{display:"flex",gap:10}}>
+                {["weekly","monthly"].map(f=>(
+                  <button key={f} onClick={()=>setPFreq(f)} style={{flex:1,padding:10,borderRadius:8,border:`2px solid ${pFreq===f?P:"#e2e8f0"}`,background:pFreq===f?P+"0a":"white",fontSize:14,fontWeight:600,cursor:"pointer",color:pFreq===f?P:S,textTransform:"capitalize"}}>{f}</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#374151",marginBottom:8}}>Duration</div>
+              <div style={{display:"flex",gap:8}}>
+                {[3,6,9,12].map(n=>(
+                  <button key={n} onClick={()=>setPMo(n)} style={{flex:1,padding:10,borderRadius:8,border:`2px solid ${pMo===n?P:"#e2e8f0"}`,background:pMo===n?P+"0a":"white",fontSize:14,fontWeight:600,cursor:"pointer",color:pMo===n?P:S}}>{n} mo</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{background:"#f8fafc",borderRadius:10,padding:16,border:"1px solid #e2e8f0"}}>
+              <div style={{fontSize:12,fontWeight:600,color:S,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Plan Preview</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div style={{background:"white",borderRadius:8,padding:14,textAlign:"center",border:"1px solid #e2e8f0"}}>
+                  <div style={{fontSize:11,color:S,marginBottom:4}}>Catch-up {pFreq}</div>
+                  <div style={{fontSize:22,fontWeight:700,color:P}}>{fmt(catchUp)}</div>
+                </div>
+                <div style={{background:"white",borderRadius:8,padding:14,textAlign:"center",border:"1px solid #e2e8f0"}}>
+                  <div style={{fontSize:11,color:S,marginBottom:4}}>+ Quarterly dues</div>
+                  <div style={{fontSize:22,fontWeight:700,color:D}}>{fmt(QUARTERLY_DUES)}</div>
+                </div>
+              </div>
+              <div style={{fontSize:13,color:S,lineHeight:1.7}}>
+                <strong style={{color:D}}>{m.name}</strong> pays <strong>{fmt(catchUp)}</strong>/{pFreq==="weekly"?"week":"month"} to clear {fmt(m.arrears)} over {pMo} months. Regular {fmt(QUARTERLY_DUES)} dues on quarter dates keep them current going forward.
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:10,marginTop:18}}>
+              <button onClick={()=>setPlanModal(null)} style={{flex:1,padding:12,borderRadius:8,border:"1px solid #e2e8f0",background:"white",fontSize:14,fontWeight:600,cursor:"pointer",color:S}}>Cancel</button>
+              <button onClick={()=>setPlanModal(null)} style={{flex:2,padding:12,borderRadius:8,border:"none",background:P,fontSize:14,fontWeight:600,cursor:"pointer",color:"white",boxShadow:"0 2px 8px rgba(99,91,255,0.3)"}}>Send Plan Link to Member</button>
+            </div>
+            <div style={{fontSize:12,color:"#94a3b8",textAlign:"center",marginTop:10}}>Member receives an email with a secure link to enter their card and confirm.</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Member Detail ──
+  if(sel){
+    const m=sel, pp=m.plan?(m.plan.paidDown/m.plan.totalArrears)*100:0;
+    return(
+      <div style={{minHeight:"100vh",background:"#f1f5f9"}}>
+        <div style={{background:D,padding:"14px 20px",display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>setSel(null)} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,padding:"8px 12px",color:"white",cursor:"pointer",fontSize:13}}>← Back</button>
+          <div style={{color:"white",fontWeight:600}}>{m.name}</div>
+          <Badge status={m.status}/>
+        </div>
+        <div style={{maxWidth:800,margin:"0 auto",padding:20}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:18}}>
+            {[["Arrears",m.arrears>0?fmt(m.arrears):"None",m.arrears>0?R:G],["Paid Through",m.quartersPaid[m.quartersPaid.length-1],D],["Card",m.cardBrand+" •••• "+m.cardLast4,D]].map(([l,v,c])=>(
+              <div key={l} style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+                <div style={{fontSize:11,color:S,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{l}</div>
+                <div style={{fontSize:l==="Card"?14:24,fontWeight:700,color:c,marginTop:l==="Card"?4:0}}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {m.plan&&(
+            <div style={{background:"white",borderRadius:12,padding:18,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:15,fontWeight:700,color:D}}><TUp size={16} style={{verticalAlign:"middle",marginRight:6,color:"#2563eb"}}/>Catch-Up Plan Progress</div>
+                <span style={{fontSize:13,fontWeight:600,color:"#2563eb"}}>{Math.round(pp)}% paid</span>
+              </div>
+              <Bar pct={pp} color="#2563eb" height={10}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginTop:14}}>
+                {[["Type",m.plan.type==="weekly"?"Weekly":"Monthly"],["Amount",fmt(m.plan.catchUpAmount)],["Paid down",fmt(m.plan.paidDown)],["Remaining",fmt(m.plan.totalArrears-m.plan.paidDown)]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:11,color:S,marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:600,color:D}}>{v}</div></div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {m.status==="behind"&&!m.plan&&(
+            <div style={{background:"#fef2f2",borderRadius:12,padding:18,marginBottom:18,border:"1px solid #fecaca",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:700,color:R,marginBottom:4}}><AlertTri size={16} style={{verticalAlign:"middle",marginRight:6}}/>{Math.round(m.arrears/QUARTERLY_DUES)} quarters past due — {fmt(m.arrears)} owed</div>
+                <div style={{fontSize:13,color:"#991b1b"}}>No plan set up. Per Article XI §3, E-Board can approve a hardship plan.</div>
+              </div>
+              <button onClick={()=>{setPMo(6);setPFreq("monthly");setPlanModal(m)}} style={{padding:"10px 16px",background:P,color:"white",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Create Plan</button>
+            </div>
+          )}
+
+          <div style={{background:"white",borderRadius:12,padding:18,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:15,fontWeight:700,color:D,marginBottom:12}}>Payment History</div>
+            {m.payments.map((p,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<m.payments.length-1?"1px solid #f1f5f9":"none"}}>
+                <div><div style={{fontSize:13,fontWeight:500,color:D}}>{p.desc}</div><div style={{fontSize:12,color:"#94a3b8"}}>{p.date}</div></div>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:p.status==="succeeded"?G:p.status==="retrying"?A:R}}/>
+                    <span style={{color:p.status==="succeeded"?G:p.status==="retrying"?A:R,fontWeight:500}}>{p.status==="succeeded"?"Paid":p.status==="retrying"?"Retrying":"Failed"}</span>
+                  </div>
+                  <div style={{fontSize:14,fontWeight:600,color:D,minWidth:55,textAlign:"right"}}>{fmt(p.amount)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main Dashboard ──
+  return(
+    <div style={{minHeight:"100vh",background:"#f1f5f9"}}>
+      <div style={{background:D,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{color:"white",fontWeight:700,fontSize:16}}>IATSE 478</div>
+          <div style={{color:"rgba(255,255,255,0.35)",fontSize:14}}>Dues Dashboard</div>
+        </div>
+        <button onClick={onBack} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,padding:"8px 14px",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:13}}>← Demo Home</button>
+      </div>
+
+      <div style={{maxWidth:960,margin:"0 auto",padding:20}}>
+        {/* Stats */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+          {[{i:<Usrs size={18}/>,l:"Enrolled",v:MEMBERS.length,c:P,s:"members"},
+            {i:<CheckCircle size={18}/>,l:"Current",v:ct.current,c:G,s:"on time"},
+            {i:<TUp size={18}/>,l:"On Plan",v:ct.plan_active,c:"#2563eb",s:"catching up"},
+            {i:<AlertTri size={18}/>,l:"Behind",v:ct.behind,c:R,s:"need attention"}
+          ].map((s,idx)=>(
+            <div key={idx} style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,color:"#94a3b8"}}>{s.i}<span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{s.l}</span></div>
+              <div style={{fontSize:26,fontWeight:700,color:s.c}}>{s.v}</div>
+              <div style={{fontSize:11,color:"#94a3b8"}}>{s.s}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Money row */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:18}}>
+          <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Collected (All Time)</div>
+            <div style={{fontSize:26,fontWeight:700,color:G}}>{fmt(totCol)}</div>
+          </div>
+          <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Outstanding Arrears</div>
+            <div style={{fontSize:26,fontWeight:700,color:totOut>0?R:G}}>{fmt(totOut)}</div>
+          </div>
+        </div>
+
+        {/* Filter */}
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {[{k:"all",l:"All",n:MEMBERS.length},{k:"current",l:"Current",n:ct.current},{k:"plan_active",l:"On Plan",n:ct.plan_active},{k:"behind",l:"Behind",n:ct.behind}].map(f=>(
+            <button key={f.k} onClick={()=>setFilter(f.k)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid",fontSize:13,fontWeight:500,cursor:"pointer",background:filter===f.k?D:"white",color:filter===f.k?"white":"#374151",borderColor:filter===f.k?D:"#e2e8f0"}}>
+              {f.l} <span style={{opacity:.5}}>({f.n})</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div style={{background:"white",borderRadius:12,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1.5fr 1fr 44px",padding:"10px 16px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",fontSize:11,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",letterSpacing:.5}}>
+            <div>Member</div><div>Status</div><div>Arrears</div><div>Plan Progress</div><div>Paid Thru</div><div></div>
+          </div>
+          {filt.map(m=>{
+            const pp=m.plan?(m.plan.paidDown/m.plan.totalArrears)*100:0;
+            return(
+              <div key={m.id} onClick={()=>setSel(m)}
+                style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1.5fr 1fr 44px",padding:"12px 16px",borderBottom:"1px solid #f1f5f9",alignItems:"center",cursor:"pointer",transition:"background 0.15s"}}
+                onMouseOver={e=>e.currentTarget.style.background="#f8fafc"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                <div><div style={{fontSize:14,fontWeight:600,color:D}}>{m.name}</div><div style={{fontSize:12,color:"#94a3b8"}}>{m.email}</div></div>
+                <div><Badge status={m.status}/></div>
+                <div style={{fontSize:14,fontWeight:600,color:m.arrears>0?R:G}}>{m.arrears>0?fmt(m.arrears):"—"}</div>
+                <div>
+                  {m.plan?(
+                    <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{flex:1}}><Bar pct={pp} color="#2563eb" height={6}/></div><span style={{fontSize:12,color:"#2563eb",fontWeight:600,minWidth:32}}>{Math.round(pp)}%</span></div>
+                  ):m.status==="behind"?(
+                    <button onClick={e=>{e.stopPropagation();setPMo(6);setPFreq("monthly");setPlanModal(m)}} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${P}`,background:P+"0a",color:P,fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Create Plan</button>
+                  ):<span style={{fontSize:12,color:"#94a3b8"}}>—</span>}
+                </div>
+                <div style={{fontSize:13,color:S}}>{m.quartersPaid[m.quartersPaid.length-1]}</div>
+                <div style={{textAlign:"right"}}><Eye size={15} style={{color:"#94a3b8"}}/></div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:18}}>
+          <div style={{background:"white",borderRadius:10,padding:14,fontSize:13,color:S,lineHeight:1.6,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <strong style={{color:D}}>💰 Cost:</strong> Stripe charges 2.9% + $0.30/transaction. At {fmt(QUARTERLY_DUES)}/quarter that's ~$2.10/member/quarter. Catch-up payments incur the same per-transaction fee.
+          </div>
+          <div style={{background:"white",borderRadius:10,padding:14,fontSize:13,color:S,lineHeight:1.6,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+            <strong style={{color:D}}>📋 Authority:</strong> Article XI §3 already lets the E-Board approve hardship payment plans. This automates those plans — no bylaw changes needed.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// HOME
+// ============================================================
+function App() {
+  const [view,setView]=useState("home");
+  if(view==="member") return <MemberPage onBack={()=>setView("home")}/>;
+  if(view==="admin") return <AdminDash onBack={()=>setView("home")}/>;
+
+  return(
+    <div style={{minHeight:"100vh",background:"#f7f7f8"}}>
+      <div style={{background:`linear-gradient(135deg,${D} 0%,#1e3a5f 60%,${P} 100%)`,padding:"52px 20px 42px",textAlign:"center",color:"white"}}>
+        <div style={{fontSize:11,fontWeight:600,letterSpacing:3,textTransform:"uppercase",opacity:.4,marginBottom:10}}>Digital Services Initiative</div>
+        <h1 style={{fontSize:30,fontWeight:800,margin:"0 0 10px",lineHeight:1.2}}>Automated Dues Collection</h1>
+        <p style={{fontSize:14,opacity:.6,maxWidth:500,margin:"0 auto",lineHeight:1.6}}>Secure recurring payments and flexible catch-up plans — all automated through Stripe.</p>
+        <div style={{fontSize:12,opacity:.3,marginTop:12}}>IATSE Local 478 · {fmt(QUARTERLY_DUES)}/quarter · For E-Board Review</div>
+      </div>
+
+      <div style={{maxWidth:720,margin:"-26px auto 0",padding:"0 20px 50px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+          {[{k:"member",icon:<CC size={24}/>,t:"Member View",d:"See what a member behind on dues experiences: choose a catch-up plan, enter their card securely, get enrolled.",cta:"Try the flow →"},
+            {k:"admin",icon:<Usrs size={24}/>,t:"Office Dashboard",d:"Every member's status at a glance. Build catch-up plans, track progress, spot problems instantly.",cta:"View dashboard →"}
+          ].map(c=>(
+            <div key={c.k} onClick={()=>setView(c.k)} style={{background:"white",borderRadius:14,padding:24,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.08)",transition:"all 0.25s",border:"2px solid transparent"}}
+              onMouseOver={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.borderColor=P}}
+              onMouseOut={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.borderColor="transparent"}}>
+              <div style={{width:42,height:42,borderRadius:10,background:P+"12",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12,color:P}}>{c.icon}</div>
+              <div style={{fontSize:16,fontWeight:700,color:D,marginBottom:6}}>{c.t}</div>
+              <div style={{fontSize:13,color:S,lineHeight:1.6}}>{c.d}</div>
+              <div style={{marginTop:12,fontSize:13,fontWeight:600,color:P}}>{c.cta}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:"white",borderRadius:14,padding:24,boxShadow:"0 4px 24px rgba(0,0,0,0.08)"}}>
+          <div style={{fontSize:16,fontWeight:700,color:D,marginBottom:16}}>What This Solves</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {[{icon:<Shield size={18}/>,t:"No More Paper Card Forms",d:"Members enter their own card info securely. The office never handles card numbers."},
+              {icon:<Refresh size={18}/>,t:"Auto-Retry Failed Charges",d:"Stripe retries failed payments automatically. No more starting over."},
+              {icon:<TUp size={18}/>,t:"Flexible Catch-Up Plans",d:"Weekly or monthly plans that clear arrears while keeping members current on new dues."},
+              {icon:<Cal size={18}/>,t:"Clear Visibility",d:"Members see their payoff timeline. The office sees everyone's status in one dashboard."},
+            ].map((x,i)=>(
+              <div key={i} style={{padding:14,background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0"}}>
+                <div style={{color:P,marginBottom:6}}>{x.icon}</div>
+                <div style={{fontSize:13,fontWeight:700,color:D,marginBottom:4}}>{x.t}</div>
+                <div style={{fontSize:12,color:S,lineHeight:1.6}}>{x.d}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:18,padding:12,background:"#f0f0ff",borderRadius:8,border:"1px solid #e0e0ff",fontSize:13,color:D,lineHeight:1.6}}>
+            <strong>Constitutional fit:</strong> Article XI §3 already allows E-Board-approved hardship payment plans. This automates them — no bylaw changes required. Estimated MVP: 2–3 weeks.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
